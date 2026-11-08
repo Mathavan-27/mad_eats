@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://madeats-backend-api.loca.lt/api/:path*"
+      "destination": "https://madeats-live-api.loca.lt/api/:path*"
     },
     {
       "source": "/(.*)",

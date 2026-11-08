@@ -27,3 +27,9 @@ services:
         value: 9363114514
       - key: SMS_GATEWAY_PROVIDER
         value: SIMULATED
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_WEBHOOK_URL
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false

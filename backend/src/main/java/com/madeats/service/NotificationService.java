@@ -88,6 +88,15 @@ public class NotificationService {
     @Value("${whatsapp.business.recipient-number:919363114514}")
     private String whatsappRecipientNumber;
 
+    @Value("${resend.api.key:}")
+    private String resendApiKey;
+
+    @Value("${mail.webhook.url:}")
+    private String mailWebhookUrl;
+
+    @Value("${brevo.api.key:}")
+    private String brevoApiKey;
+
     public void dispatchAllOwnerNotifications(Order order) {
         File pdfFile = null;
         try {
@@ -293,9 +302,51 @@ public class NotificationService {
         log.setMessageContent(textBody);
         log.setIsRead(false);
 
-        if (mailSender == null || mailPassword == null || mailPassword.isBlank()) {
+        byte[] pdfBytes = null;
+        if (pdfFile != null && pdfFile.exists()) {
+            try {
+                pdfBytes = java.nio.file.Files.readAllBytes(pdfFile.toPath());
+            } catch (Exception ignored) {
+            }
+        }
+        if (pdfBytes == null) {
+            try {
+                pdfBytes = pdfReportService.generateOrderPdfBytes(order);
+            } catch (Exception ignored) {
+            }
+        }
+        String attachmentName = "MAD_EATS_Order_" + orderCode + ".pdf";
+
+        if (resendApiKey != null && !resendApiKey.isBlank()) {
+            try {
+                sendViaResend(ownerEmail, emailSubject, htmlBody, attachmentName, pdfBytes);
+                log.setStatus("SENT");
+                log.setErrorMessage(null);
+            } catch (Exception ex) {
+                log.setStatus("FAILED");
+                log.setErrorMessage("Resend API failed: " + ex.getMessage());
+            }
+        } else if (mailWebhookUrl != null && !mailWebhookUrl.isBlank()) {
+            try {
+                sendViaWebhook(ownerEmail, emailSubject, htmlBody, attachmentName, pdfBytes);
+                log.setStatus("SENT");
+                log.setErrorMessage(null);
+            } catch (Exception ex) {
+                log.setStatus("FAILED");
+                log.setErrorMessage("Mail Webhook failed: " + ex.getMessage());
+            }
+        } else if (brevoApiKey != null && !brevoApiKey.isBlank()) {
+            try {
+                sendViaBrevo(ownerEmail, emailSubject, htmlBody, attachmentName, pdfBytes);
+                log.setStatus("SENT");
+                log.setErrorMessage(null);
+            } catch (Exception ex) {
+                log.setStatus("FAILED");
+                log.setErrorMessage("Brevo API failed: " + ex.getMessage());
+            }
+        } else if (mailSender == null || mailPassword == null || mailPassword.isBlank()) {
             log.setStatus("PENDING");
-            log.setErrorMessage("JavaMailSender SMTP credentials not set (configure SPRING_MAIL_PASSWORD environment variable to transmit live email).");
+            log.setErrorMessage("No email credentials configured. Please set RESEND_API_KEY, MAIL_WEBHOOK_URL, or SPRING_MAIL_PASSWORD.");
         } else {
             try {
                 MimeMessage message = mailSender.createMimeMessage();
@@ -305,12 +356,8 @@ public class NotificationService {
                 helper.setSubject(emailSubject);
                 helper.setText(textBody, htmlBody);
 
-                byte[] pdfBytes;
-                if (pdfFile != null && pdfFile.exists()) {
-                    helper.addAttachment("MAD_EATS_Order_" + orderCode + ".pdf", pdfFile);
-                } else {
-                    pdfBytes = pdfReportService.generateOrderPdfBytes(order);
-                    helper.addAttachment("MAD_EATS_Order_" + orderCode + ".pdf", new ByteArrayResource(pdfBytes));
+                if (pdfBytes != null) {
+                    helper.addAttachment(attachmentName, new ByteArrayResource(pdfBytes));
                 }
 
                 mailSender.send(message);
@@ -518,9 +565,51 @@ public class NotificationService {
                 }
             }
 
-            if (mailSender == null || mailPassword == null || mailPassword.isBlank()) {
+            byte[] pdfBytes = null;
+            if (pdfFile != null && pdfFile.exists()) {
+                try {
+                    pdfBytes = java.nio.file.Files.readAllBytes(pdfFile.toPath());
+                } catch (Exception ignored) {
+                }
+            }
+            if (pdfBytes == null) {
+                try {
+                    pdfBytes = pdfReportService.generateOrderPdfBytes(order);
+                } catch (Exception ignored) {
+                }
+            }
+            String attachmentName = "MAD_EATS_Order_" + order.getOrderCode() + ".pdf";
+
+            if (resendApiKey != null && !resendApiKey.isBlank()) {
+                try {
+                    sendViaResend(log.getRecipient(), log.getSubject(), log.getMessageContent(), attachmentName, pdfBytes);
+                    log.setStatus("SENT");
+                    log.setErrorMessage(null);
+                } catch (Exception ex) {
+                    log.setStatus("FAILED");
+                    log.setErrorMessage("Resend API failed: " + ex.getMessage());
+                }
+            } else if (mailWebhookUrl != null && !mailWebhookUrl.isBlank()) {
+                try {
+                    sendViaWebhook(log.getRecipient(), log.getSubject(), log.getMessageContent(), attachmentName, pdfBytes);
+                    log.setStatus("SENT");
+                    log.setErrorMessage(null);
+                } catch (Exception ex) {
+                    log.setStatus("FAILED");
+                    log.setErrorMessage("Mail Webhook failed: " + ex.getMessage());
+                }
+            } else if (brevoApiKey != null && !brevoApiKey.isBlank()) {
+                try {
+                    sendViaBrevo(log.getRecipient(), log.getSubject(), log.getMessageContent(), attachmentName, pdfBytes);
+                    log.setStatus("SENT");
+                    log.setErrorMessage(null);
+                } catch (Exception ex) {
+                    log.setStatus("FAILED");
+                    log.setErrorMessage("Brevo API failed: " + ex.getMessage());
+                }
+            } else if (mailSender == null || mailPassword == null || mailPassword.isBlank()) {
                 log.setStatus("PENDING");
-                log.setErrorMessage("JavaMailSender credentials not set in environment (SPRING_MAIL_PASSWORD).");
+                log.setErrorMessage("No email credentials configured. Please set RESEND_API_KEY, MAIL_WEBHOOK_URL, or SPRING_MAIL_PASSWORD.");
             } else {
                 try {
                     MimeMessage message = mailSender.createMimeMessage();
@@ -530,8 +619,8 @@ public class NotificationService {
                     helper.setSubject(log.getSubject());
                     helper.setText(log.getMessageContent(), false);
 
-                    if (pdfFile != null && pdfFile.exists()) {
-                        helper.addAttachment("MAD_EATS_Order_" + order.getOrderCode() + ".pdf", pdfFile);
+                    if (pdfBytes != null) {
+                        helper.addAttachment(attachmentName, new ByteArrayResource(pdfBytes));
                     }
                     mailSender.send(message);
                     log.setStatus("SENT");
@@ -594,5 +683,133 @@ public class NotificationService {
 
     public List<OrderNotification> getAllLegacyNotifications() {
         return orderNotificationRepository.findAllByOrderBySentAtDesc();
+    }
+
+    private void sendViaResend(String recipient, String subject, String htmlContent, String filename, byte[] pdfBytes) throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+
+        StringBuilder json = new StringBuilder();
+        json.append("{");
+        json.append("\"from\":\"MAD EATS <onboarding@resend.dev>\",");
+        json.append("\"to\":[\"").append(escapeJson(recipient)).append("\"],");
+        json.append("\"subject\":\"").append(escapeJson(subject)).append("\",");
+        json.append("\"html\":\"").append(escapeJson(htmlContent)).append("\"");
+        if (pdfBytes != null && pdfBytes.length > 0) {
+            String base64Content = Base64.getEncoder().encodeToString(pdfBytes);
+            json.append(",\"attachments\":[{\"filename\":\"").append(escapeJson(filename)).append("\",\"content\":\"").append(base64Content).append("\"}]");
+        }
+        json.append("}");
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.resend.com/emails"))
+                .header("Authorization", "Bearer " + resendApiKey.trim())
+                .header("Content-Type", "application/json")
+                .timeout(Duration.ofSeconds(15))
+                .POST(HttpRequest.BodyPublishers.ofString(json.toString(), StandardCharsets.UTF_8))
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 400) {
+            throw new RuntimeException("HTTP " + response.statusCode() + ": " + response.body());
+        }
+    }
+
+    private void sendViaWebhook(String recipient, String subject, String htmlContent, String filename, byte[] pdfBytes) throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+
+        StringBuilder json = new StringBuilder();
+        json.append("{");
+        json.append("\"to\":\"").append(escapeJson(recipient)).append("\",");
+        json.append("\"subject\":\"").append(escapeJson(subject)).append("\",");
+        json.append("\"html\":\"").append(escapeJson(htmlContent)).append("\"");
+        if (pdfBytes != null && pdfBytes.length > 0) {
+            String base64Content = Base64.getEncoder().encodeToString(pdfBytes);
+            json.append(",\"filename\":\"").append(escapeJson(filename)).append("\"");
+            json.append(",\"attachment\":\"").append(base64Content).append("\"");
+        }
+        json.append("}");
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(mailWebhookUrl.trim()))
+                .header("Content-Type", "application/json")
+                .timeout(Duration.ofSeconds(20))
+                .POST(HttpRequest.BodyPublishers.ofString(json.toString(), StandardCharsets.UTF_8))
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 400) {
+            throw new RuntimeException("HTTP " + response.statusCode() + ": " + response.body());
+        }
+    }
+
+    private void sendViaBrevo(String recipient, String subject, String htmlContent, String filename, byte[] pdfBytes) throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+
+        StringBuilder json = new StringBuilder();
+        json.append("{");
+        json.append("\"sender\":{\"name\":\"MAD EATS\",\"email\":\"").append(escapeJson(mailFromUsername)).append("\"},");
+        json.append("\"to\":[{\"email\":\"").append(escapeJson(recipient)).append("\"}],");
+        json.append("\"subject\":\"").append(escapeJson(subject)).append("\",");
+        json.append("\"htmlContent\":\"").append(escapeJson(htmlContent)).append("\"");
+        if (pdfBytes != null && pdfBytes.length > 0) {
+            String base64Content = Base64.getEncoder().encodeToString(pdfBytes);
+            json.append(",\"attachment\":[{\"name\":\"").append(escapeJson(filename)).append("\",\"content\":\"").append(base64Content).append("\"}]");
+        }
+        json.append("}");
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.brevo.com/v3/smtp/email"))
+                .header("api-key", brevoApiKey.trim())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .timeout(Duration.ofSeconds(15))
+                .POST(HttpRequest.BodyPublishers.ofString(json.toString(), StandardCharsets.UTF_8))
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 400) {
+            throw new RuntimeException("HTTP " + response.statusCode() + ": " + response.body());
+        }
+    }
+
+    private String escapeJson(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            switch (c) {
+                case '"':
+                    sb.append("\\\"");
+                    break;
+                case '\\':
+                    sb.append("\\\\");
+                    break;
+                case '\b':
+                    sb.append("\\b");
+                    break;
+                case '\f':
+                    sb.append("\\f");
+                    break;
+                case '\n':
+                    sb.append("\\n");
+                    break;
+                case '\r':
+                    sb.append("\\r");
+                    break;
+                case '\t':
+                    sb.append("\\t");
+                    break;
+                default:
+                    if (c < ' ') {
+                        String t = "000" + Integer.toHexString(c);
+                        sb.append("\\u").append(t.substring(t.length() - 4));
+                    } else {
+                        sb.append(c);
+                    }
+            }
+        }
+        return sb.toString();
     }
 }

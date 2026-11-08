@@ -2,6 +2,7 @@ services:
   - type: web
     name: mad-eats-backend
     runtime: java
+    plan: free
     rootDir: backend
     buildCommand: ./mvnw clean package -DskipTests
     startCommand: java -jar target/mad-eats-backend-1.0.0.jar

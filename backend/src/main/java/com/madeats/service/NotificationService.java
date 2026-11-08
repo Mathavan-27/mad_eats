@@ -688,6 +688,8 @@ public class NotificationService {
     private void sendViaResend(String recipient, String subject, String htmlContent, String filename, byte[] pdfBytes) throws Exception {
         HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
+        String key = (resendApiKey != null && !resendApiKey.isBlank()) ? resendApiKey.trim() : System.getenv("RESEND_API_KEY");
+
         StringBuilder json = new StringBuilder();
         json.append("{");
         json.append("\"from\":\"MAD EATS <onboarding@resend.dev>\",");
@@ -702,7 +704,7 @@ public class NotificationService {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("https://api.resend.com/emails"))
-                .header("Authorization", "Bearer " + resendApiKey.trim())
+                .header("Authorization", "Bearer " + key)
                 .header("Content-Type", "application/json")
                 .timeout(Duration.ofSeconds(15))
                 .POST(HttpRequest.BodyPublishers.ofString(json.toString(), StandardCharsets.UTF_8))
